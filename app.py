@@ -62,21 +62,30 @@ def clean_text(text):
     clean_tokens = [lemmatizer.lemmatize(word) for word in tokens if word not in stop_words and len(word) > 2]
     return " ".join(clean_tokens)
 
-# --- 2. API Validation ---
+# --- 2. API Validation (CORRECTED) ---
 def validate_token(bearer_token):
     try:
+        # strict=True raises an error if the token is invalid
         client = tweepy.Client(bearer_token=bearer_token)
-        # Test call - fetch the authenticated user's details
-        me = client.get_me()
-        if me.data:
+        
+        # FIX: Use get_user instead of get_me. 
+        # get_me() requires user context (OAuth 1.0a), 
+        # but Bearer Token is App context.
+        # We fetch the ID of the official 'X' account just to test connectivity.
+        response = client.get_user(username="X")
+        
+        if response.data:
             st.session_state['api_client'] = client
             st.session_state['authenticated'] = True
             st.session_state['bearer_token'] = bearer_token
-            st.success(f"Authenticated as ID: {me.data.id}")
+            st.success("✅ Authentication Successful! System Ready.")
             time.sleep(1)
             st.rerun()
+            
+    except tweepy.errors.Unauthorized:
+        st.error("⛔ Authentication Failed: Invalid Bearer Token.")
     except Exception as e:
-        st.error(f"Validation Failed: {str(e)}")
+        st.error(f"⚠️ Validation Error: {str(e)}")
 
 # --- 3. Data Fetching Logic (Optimized) ---
 def fetch_twitter_data(sector, stock_symbol, target_words, client):
