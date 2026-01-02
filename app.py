@@ -48,8 +48,7 @@ def clean_text(text):
     text = text.lower()
     # Remove URLs
     text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
-    # Remove mentions (@user) and hashtags (#topic) symbols only, keeping text if needed? 
-    # Usually better to remove the @handle entirely to avoid analyzing usernames.
+    # Remove mentions (@user)
     text = re.sub(r'@\w+', '', text)
     # Remove non-alphabetic characters (emojis, numbers, symbols)
     text = re.sub(r'[^a-zA-Z\s]', '', text)
@@ -62,36 +61,37 @@ def clean_text(text):
     clean_tokens = [lemmatizer.lemmatize(word) for word in tokens if word not in stop_words and len(word) > 2]
     return " ".join(clean_tokens)
 
-# --- 2. API Validation (CORRECTED) ---
-def validate_token(bearer_token):
+# --- 2. API Validation (UPDATED: OAuth 1.0a) ---
+def validate_token(api_key, api_secret, access_token, access_token_secret):
     try:
-        # strict=True raises an error if the token is invalid
-        client = tweepy.Client(bearer_token=bearer_token)
+        # Initialize Client with User Context (OAuth 1.0a)
+        client = tweepy.Client(
+            consumer_key=api_key,
+            consumer_secret=api_secret,
+            access_token=access_token,
+            access_token_secret=access_token_secret
+        )
         
-        # FIX: Use get_user instead of get_me. 
-        # get_me() requires user context (OAuth 1.0a), 
-        # but Bearer Token is App context.
-        # We fetch the ID of the official 'X' account just to test connectivity.
-        response = client.get_user(username="X")
+        # Test call - fetch the authenticated user's details
+        # This now works because we have User Context
+        me = client.get_me()
         
-        if response.data:
+        if me.data:
             st.session_state['api_client'] = client
             st.session_state['authenticated'] = True
-            st.session_state['bearer_token'] = bearer_token
-            st.success("✅ Authentication Successful! System Ready.")
+            st.toast(f"✅ Logged in as @{me.data.username}", icon="🔓")
             time.sleep(1)
             st.rerun()
             
     except tweepy.errors.Unauthorized:
-        st.error("⛔ Authentication Failed: Invalid Bearer Token.")
+        st.error("⛔ Authentication Failed: Check your Keys and Tokens.")
     except Exception as e:
-        st.error(f"⚠️ Validation Error: {str(e)}")
+        st.error(f"⚠️ Connection Error: {str(e)}")
 
 # --- 3. Data Fetching Logic (Optimized) ---
 def fetch_twitter_data(sector, stock_symbol, target_words, client):
     """
     Fetches data until word count target is met or limits reached.
-    Optimized for X API quotas.
     """
     # Construct Query
     keywords = SECTOR_KEYWORDS.get(sector, [])
@@ -148,12 +148,12 @@ def fetch_twitter_data(sector, stock_symbol, target_words, client):
             # Pagination
             if 'next_token' in response.meta:
                 next_token = response.meta['next_token']
-                time.sleep(1.1) # Basic Rate Limit Protection (1 request/sec roughly)
+                time.sleep(1.1) # Basic Rate Limit Protection
             else:
                 break
                 
-            # Safety break for demo purposes to avoid infinite loops if API returns little data
-            if len(collected_texts) > 5000 and current_word_count < target_words:
+            # Safety break for demo purposes
+            if len(collected_texts) > 2000 and current_word_count < target_words:
                  status_text.warning("High fetch count, stopping to preserve quota/time.")
                  break
 
@@ -203,15 +203,27 @@ def main():
     # --- PHASE 1: AUTHENTICATION (BLOCKING) ---
     if not st.session_state['authenticated']:
         st.title("🔐 X-Ray Analytics: Secure Login")
-        st.markdown("Enter your X API v2 Bearer Token to access the analysis engine.")
-        
-        token_input = st.text_input("Bearer Token", type="password", help="From developer.twitter.com")
-        
-        if st.button("Validate & Connect"):
-            if not token_input:
-                st.warning("Please enter a token.")
-            else:
-                validate_token(token_input)
+        st.markdown("Enter your **X API Keys & Tokens** (OAuth 1.0a) to access the engine.")
+        st.info("Credentials are stored in session RAM only and are wiped on refresh.")
+
+        with st.form("auth_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                api_key = st.text_input("API Key (Consumer Key)", type="password")
+                api_secret = st.text_input("API Secret (Consumer Secret)", type="password")
+            
+            with col2:
+                access_token = st.text_input("Access Token", type="password")
+                access_secret = st.text_input("Access Token Secret", type="password")
+            
+            submit = st.form_submit_button("Validate & Connect")
+            
+            if submit:
+                if not (api_key and api_secret and access_token and access_secret):
+                    st.warning("⚠️ All 4 fields are required.")
+                else:
+                    validate_token(api_key, api_secret, access_token, access_secret)
         
         st.stop() # Halts app execution here until authenticated
 
